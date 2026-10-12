@@ -5,6 +5,11 @@ import pandas as pd
 import requests
 from sqlalchemy import create_engine, text
 
+from pathlib import Path
+import yaml
+
+
+
 
 # ==========================================
 # 1. PostgreSQL 연결 설정
@@ -118,14 +123,89 @@ print("\n=== Statistics Calculated by Python ===")
 print(json.dumps(stats, indent=2, ensure_ascii=False))
 
 
+
+# ==========================================
+# YAML 파일 생성
+# ==========================================
+
+# DataFrame 값을 YAML에서 사용할 수 있는
+# 일반 Python 자료형으로 변환
+def to_native(value):
+    if pd.isna(value):
+        return None
+
+    if hasattr(value, "item"):
+        return value.item()
+
+    return value
+
+
+# 행성 데이터를 딕셔너리 목록으로 변환
+planet_rows = [
+    {
+        key: to_native(value)
+        for key, value in row.items()
+    }
+    for row in df.to_dict(orient="records")
+]
+
+# YAML 파일에 저장할 전체 데이터 구성
+yaml_data = {
+    "source": "NASA Exoplanet Archive",
+    "description": (
+        "Exoplanet data extracted from PostgreSQL"
+    ),
+    "units": {
+        "pl_rade": "Earth radii",
+        "pl_bmasse": "Earth masses",
+        "pl_orbper": "days",
+    },
+    "statistics": stats,
+    "planets": planet_rows,
+}
+
+# 프로젝트 루트/data/processed/exoplanets.yml
+project_root = Path(__file__).resolve().parent.parent
+
+output_path = (
+    project_root
+    / "data"
+    / "processed"
+    / "exoplanets.yml"
+)
+
+output_path.parent.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+with output_path.open("w", encoding="utf-8") as file:
+    yaml.safe_dump(
+        yaml_data,
+        file,
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+    )
+
+print(f"\nYAML file saved to: {output_path}")
+
+
 # ==========================================
 # 4. 데이터와 통계를 Qwen에 전달할 프롬프트 작성
 # ==========================================
 
-stats_text = json.dumps(
-    stats,
-    indent=2,
-    ensure_ascii=False
+# stats_text = json.dumps(
+#     stats,
+#     indent=2,
+#     ensure_ascii=False
+# )
+
+yaml_text = yaml.safe_dump(
+    yaml_data,
+    allow_unicode=True,
+    sort_keys=False,
+    default_flow_style=False,
 )
 
 data_text = df.to_string(index=False)
@@ -150,8 +230,8 @@ IMPORTANT RULES:
    from the provided table alone.
 6. This is a selected sample, not the entire exoplanet archive.
 
-PYTHON-COMPUTED STATISTICS:
-{stats_text}
+YAML DATA:
+{yaml_text}
 
 DATA ROWS:
 {data_text}
@@ -193,7 +273,7 @@ try:
                 }
             ],
             "temperature": 0.3,
-            "max_tokens": 1024,
+            "max_tokens": 700,
             "chat_template_kwargs": {
                 "enable_thinking": False
             },
